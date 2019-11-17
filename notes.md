@@ -23,6 +23,8 @@ There are two options:
 
   * This will allow us to customise our login screens better than Auth0 does, and also users may not have to reset their passwords if hashed in an incompatible way
 
+  * [Cookie-based auth can still be used across subdomains](https://stackoverflow.com/questions/18492576/share-cookie-between-subdomain-and-domain) without needing a separate auth subdomain. This may be more compatible with existing systems than a JWT and an auth domain. However, the auth domain gives additional flexibility - eg. to use a different domain altogether.
+
 - For both options, a switch to JWT auth will improve speed as identities can be verified without a database lookup (see below for caveat re. authorisation). This addresses mandates 1, 2, 3.
 
 
@@ -51,10 +53,17 @@ Process:
 Additional notes:
 1. User impersonation may be a good idea from the programming convenience viewpoint - however, it might have implications for audits, for tracing requests from point of origin to time of processing, and for logging. It may not be a good idea to treat user-originating requests on par with system-originating requests, although this is a matter of debate - this issue certainly warrants discussion.
 
-2. This two-domain system helps ensure we don't leak information about our scopes, etc. outside the organisation.
+2. This two-domain system helps ensure we don't leak information about our scopes, etc. outside the organisation. It also allows for us to use cookies externally and JWTs internally.
 
 3. [Vouch-proxy](https://github.com/vouch/vouch-proxy) can perform the role of the auth provider.
 
 4. This involves a separate network request for each incoming request. It also involves a database lookup (i.e., for the ACLs). This latter one can be cached with Redis, this is an ideal place for Redis to improve performance.
 
 5. This can extend auth to cover future developments - for example, if a public API is an offering then this same auth proxy can handle authentication in that system as well.
+
+Todo:
+Sign up for Auth0
+Import all users
+Set up SSO, etc. in the user pool
+Set up vouch-proxy
+Update middleware to check internal auth token instead of external
