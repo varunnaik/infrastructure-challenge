@@ -60,10 +60,3 @@ Additional notes:
 4. This involves a separate network request for each incoming request. It also involves a database lookup (i.e., for the ACLs). This latter one can be cached with Redis, this is an ideal place for Redis to improve performance.
 
 5. This can extend auth to cover future developments - for example, if a public API is an offering then this same auth proxy can handle authentication in that system as well.
-
-Todo:
-Sign up for Auth0
-Import all users
-Set up SSO, etc. in the user pool
-Set up vouch-proxy
-Update middleware to check internal auth token instead of external
