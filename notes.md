@@ -10,7 +10,7 @@ An authentication + authorisation system that allows:
 
 ---
 
-This is a considerably complicated challenge and is hard to solve lacking context and scope for the problem.
+This is a considerably complicated challenge and is not really possible to solve lacking context and scope for the problem. That being said, I have some proposals.
 
 One simple way to solve this would be to use multisite cookies, eg.
 `SESSION_COOKIE_DOMAIN=".lildatum.com"` in `settings.py` which will allow the login cookie to be used on subdomains. This would not work on entirely different domains, where something like [Django-simple-sso](https://github.com/divio/django-simple-sso) might be used instead.
@@ -52,7 +52,7 @@ This can be done with an API gateway and centralised auth microservice. There ar
 - Every microservice or the monolith checks each request against this service, or,
 - The API gateway appends a list of permissions and scopes (as returned by the auth microservice) to each request before passing it upstream. This can be appended as an internal JWT token with a list of claims or more generally as asimple json object saving the need for decryption on each request.
 
-Now if there are requirements for fine-grained resource level permissions then the second options is not sufficient, as the metadata for all resources and permissions could be much lager than would fit onto a HTTP header. In general the second option is likely not sufficient for anything but very simple use-cases.
+Now if there are requirements for fine-grained resource level permissions then the second options is not sufficient, as the metadata for all resources and permissions could be much larger than would fit onto a HTTP header. In general the second option is likely not sufficient for anything but very simple use-cases.
 
 The first approach is much more standard, and is likely to benefit greatly from a Redis or similar cache.
 
@@ -79,5 +79,5 @@ However, if impersonation is required then a separate endpoint on the auth API w
 - Since auth is handled by a separate microservice, this is language agnostic - as long as the language/framework used in the microservice can verify JWT tokens and parse JSON it should work just fine.
 
 ----
-1
+
 All in all, this has been a very interesting and well thought out challenge. Ultimately, besides fixing a couple of bugs, I have not written any code to implement this as it is beyond the scope of a 3-4 hour programming test.
