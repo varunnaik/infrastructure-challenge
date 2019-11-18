@@ -10,53 +10,74 @@ An authentication + authorisation system that allows:
 
 ---
 
-There are two options:
-- Switch to an external provider (Auth0/Okta/Cognito). Examining Auth0 below.
-  *  Now the problem with this is that user accounts may not be seamlessly importable. Using Auth0 for instance would require all users to reset their passwords unless passwords were already [bcrypt hashed](https://auth0.com/docs/users/guides/bulk-user-imports).
+This is a considerably complicated challenge and is hard to solve lacking context and scope for the problem.
 
-  *  However, this will [allow SSO](https://auth0.com/docs/sso/current) across subdomains and also sign in with Google and other identity providers.
+One simple way to solve this would be to use multisite cookies, eg.
+`SESSION_COOKIE_DOMAIN=".lildatum.com"` in `settings.py` which will allow the login cookie to be used on subdomains. This would not work on entirely different domains, where something like [Django-simple-sso](https://github.com/divio/django-simple-sso) might be used instead.
 
-- Roll an in-house auth system
-  * This is similar to the above, but we implement ourselves SSO on our own auth subdomain - i.e., any user visiting any subdomain of the company gets redirected to auth.lildatum.com and this controls the login cookie and redirects user back to originating (sub)domain with a JWT token if logged in, else redirects to a login page and prompts for login before sending them back.
+While these are good options, ultimately they do not scale to a robust and extensible architecture.
 
-  * Subsequent requests to the server carry this JWT token to autehnticate the API call.
+I would suggest a more extensive overhaul as described below.
 
-  * This will allow us to customise our login screens better than Auth0 does, and also users may not have to reset their passwords if hashed in an incompatible way
-
-  * [Cookie-based auth can still be used across subdomains](https://stackoverflow.com/questions/18492576/share-cookie-between-subdomain-and-domain) without needing a separate auth subdomain. This may be more compatible with existing systems than a JWT and an auth domain. However, the auth domain gives additional flexibility - eg. to use a different domain altogether.
-
-- For both options, a switch to JWT auth will improve speed as identities can be verified without a database lookup (see below for caveat re. authorisation). This addresses mandates 1, 2, 3.
-
-
-- User authorisation is best done with custom scopes on the JWT token.
-  * If the authorization is trivial, without a lot of ACLs this can be done through scopes embedded in the JWT coming through Auth0. This approach does not scale beyone very simple needs.
-
-  * If there are hundreds of scopes or fine-grained ACLs are required then a database lookup is better. The way this happens is described below.
+-------
 
 ![Architecture](propeller.png)
 
-Process:
-- An incoming request from the client - web or mobile - is sent by the reverse-proxy (acting as an API gateway) to an auth microservice. This can be done with the [auth proxy](https://docs.nginx.com/nginx/admin-guide/security-controls/configuring-subrequest-authentication/) nginx module.
+- An incoming request from the client - web or mobile - is sent by the API gateway (the evolution of the reverse-proxy) to an auth microservice. This can be done with the [auth proxy](https://docs.nginx.com/nginx/admin-guide/security-controls/configuring-subrequest-authentication/) nginx module.
 
-- The auth microservice verifies the incoming Auth0 JWT and then does a database lookup for ACLs, or other authorisation parmeters.
+- The auth microservice verifies the incoming Auth0 JWT and then does a database lookup for ACLs, or other authorisation parmeters and returns them to the gateway.
 
-- All these authorisation parameters are then coded into an internal auth header - maybe a JWT or a simple JSON string.
+- The API gateway strips the original JWT out of the request, puts these authorisation parameters into an internal auth header - maybe a JWT or a simple JSON string, and forwards the request to the correct service.
 
-- The API gateway strips the JWT out of the request, puts the user string returned by the auth microservice onto the request header and forwards it onwards
+- If the monolith or a microservice gets the request, it checks the internal auth header and allow access if the embedded scopes permit it. If more fine-grained access control is needed it hits the auth microservice again to verify ACLs.
 
-- If the monolith or a microservice gets the request, it verifies the ACLs allow access, and if so, processes it. This addresses mandate #4.
+- If, for example, this reaches the monolith and it needs to access a microservice to fulfill its business logic, it simply crafts a new request, appends the internal auth header, and sends it off to the microservice.
 
-- If, for example, this reaches the monolith and it needs to access a microservice to fulfill its business logic, it simply crafts a new request, appends the internal auth header, and sends it off to the microservice. This addresses mandate #5.
+- If an out-of-band service - maybe a cron job - needs to impersonate a user it simply makes a request to the auth microservice and gets an internal auth token for that user. The servers must have an internal token based auth for talking to each other and the auth service must also be secured with AWS security groups or network policies.
 
-- If an out-of-band service - maybe a cron job - needs to impersonate a user it simply makes a request to the auth microservice and gets an internal auth token for that user. The servers must have an internal token based auth for talking to each other and the auth service must also be secured with AWS security groups or network policies. This addresses mandate #6.
+A more detailed look at ths process:
 
-Additional notes:
-1. User impersonation may be a good idea from the programming convenience viewpoint - however, it might have implications for audits, for tracing requests from point of origin to time of processing, and for logging. It may not be a good idea to treat user-originating requests on par with system-originating requests, although this is a matter of debate - this issue certainly warrants discussion.
+#### 1. To login with a username, third-party Oauth, and across domains and subdomains.
 
-2. This two-domain system helps ensure we don't leak information about our scopes, etc. outside the organisation. It also allows for us to use cookies externally and JWTs internally.
+Use an auth domain (eg. `auth.lildatum.com`) - any user visiting any domain or subdomain of the company gets redirected to auth.lildatum.com and this controls the login cookie and redirects user back to originating (sub)domain with a JWT token if logged in, else redirects to a login page and prompts for login before sending them back. This JWT can authenticate subsequent API calls.
 
-3. [Vouch-proxy](https://github.com/vouch/vouch-proxy) can perform the role of the auth provider.
+This can either be build in-house or delegated to a third-party service (Auth0/Okta/Cognito). Auth0 can import existing users although in this case the differences in hashing (pbkdf for lildatum, while Auth0 [needs bcrypt](https://auth0.com/docs/users/guides/bulk-user-imports)) means we might need to use a [custom db connection](https://auth0.com/docs/connections/database/custom-db/overview-custom-db-connections) failing which users will have to change their passwords on first visit.
 
-4. This involves a separate network request for each incoming request. It also involves a database lookup (i.e., for the ACLs). This latter one can be cached with Redis, this is an ideal place for Redis to improve performance.
+Auth0 will also provide Oauth logins, e.g. with Google.
 
-5. This can extend auth to cover future developments - for example, if a public API is an offering then this same auth proxy can handle authentication in that system as well.
+
+#### 2. Efficient checking of request authorisation for both the microservcies and the monolith
+
+This can be done with an API gateway and centralised auth microservice. There are two ways to do this:
+- Every microservice or the monolith checks each request against this service, or,
+- The API gateway appends a list of permissions and scopes (as returned by the auth microservice) to each request before passing it upstream. This can be appended as an internal JWT token with a list of claims or more generally as asimple json object saving the need for decryption on each request.
+
+Now if there are requirements for fine-grained resource level permissions then the second options is not sufficient, as the metadata for all resources and permissions could be much lager than would fit onto a HTTP header. In general the second option is likely not sufficient for anything but very simple use-cases.
+
+The first approach is much more standard, and is likely to benefit greatly from a Redis or similar cache.
+
+But the second could still be implemented as an optimisation depending on context - if a majority of requests are simple ones that don't access access-controlled resources, maybe the two could be used in conjunction.
+
+#### 3. Efficient interservice communication...
+
+In this case, simply making a new request to the target service copying the required headers should suffice. If the destination microservice needs to perform additional ACL checks it would touch the auth microservice instead of the monolith.
+
+#### 4. ...with the ability to easily impersonate a user from either the monolith or the microservice and
+    The ability to communicate between services outside the context of a request. e.g. from an asynchronous worker or cron job
+
+This makes many assumptions - are all tasks performed on user's behalf or are they general tasks? I am not sure if impersonation is a good idea - ideally requests originating from the user would be better treated separately from system-originating requests, eg. for auditing, debugging - tracing a request from browser to time of processing, logging. If internal services can impersonate users this might confuse things. Of course, this depends on context. This certainly warrants discussion.
+
+However, if impersonation is required then a separate endpoint on the auth API where a microservice can request to impersonate a user would be the way to go.
+
+#### Notes:
+
+- [Vouch-proxy](https://github.com/vouch/vouch-proxy) can perform the role of the auth microservice.
+
+- This involves a separate network request for each incoming request. It also involves a database lookup (i.e., for the ACLs). This latter one can be cached with Redis, this is an ideal place for Redis to improve performance.
+
+- This can extend auth to cover future developments - for example, if a public API is an offering then this same auth proxy can handle authentication in that system as well.
+
+- Since auth is handled by a separate microservice, this is language agnostic - as long as the language/framework used in the microservice can verify JWT tokens and parse JSON it should work just fine.
+
+
+All in all, this has been a very interesting challenge. Ultimately I have not written any code to implement this as it is beyond the scope of a 3-4 hour programming test. I have fixed a couple of bugs in the Dockerfile though.
