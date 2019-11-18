@@ -62,8 +62,7 @@ But the second could still be implemented as an optimisation depending on contex
 
 In this case, simply making a new request to the target service copying the required headers should suffice. If the destination microservice needs to perform additional ACL checks it would touch the auth microservice instead of the monolith.
 
-#### 4. ...with the ability to easily impersonate a user from either the monolith or the microservice and
-    The ability to communicate between services outside the context of a request. e.g. from an asynchronous worker or cron job
+#### 4. ...with the ability to easily impersonate a user from either the monolith or the microservice and the ability to communicate between services outside the context of a request. e.g. from an asynchronous worker or cron job
 
 This makes many assumptions - are all tasks performed on user's behalf or are they general tasks? I am not sure if impersonation is a good idea - ideally requests originating from the user would be better treated separately from system-originating requests, eg. for auditing, debugging - tracing a request from browser to time of processing, logging. If internal services can impersonate users this might confuse things. Of course, this depends on context. This certainly warrants discussion.
 
@@ -79,5 +78,6 @@ However, if impersonation is required then a separate endpoint on the auth API w
 
 - Since auth is handled by a separate microservice, this is language agnostic - as long as the language/framework used in the microservice can verify JWT tokens and parse JSON it should work just fine.
 
-
-All in all, this has been a very interesting challenge. Ultimately I have not written any code to implement this as it is beyond the scope of a 3-4 hour programming test. I have fixed a couple of bugs in the Dockerfile though.
+----
+1
+All in all, this has been a very interesting and well thought out challenge. Ultimately, besides fixing a couple of bugs, I have not written any code to implement this as it is beyond the scope of a 3-4 hour programming test.
